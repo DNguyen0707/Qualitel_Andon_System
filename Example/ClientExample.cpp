@@ -1,10 +1,13 @@
 #include <iostream>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 //linux packages
 #include <unistd.h>
 #include <arpa/inet.h>
 #include <netdb.h>
 
-using namespace std
+using namespace std;
 
 int main() {
     //create socket

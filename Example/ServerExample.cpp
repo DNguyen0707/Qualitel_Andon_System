@@ -35,6 +35,7 @@ int main() {
 
     //listening
     listen(listening, SOMAXCONN);
+    cout << "listening" << endl;
 
     //looking for connection
     sockaddr_in client;
@@ -82,6 +83,8 @@ int main() {
             cout << "rpi disconnected" << endl;
             break;
         }
+
+        cout << buf << endl;
 
         //resend message back to rpi
         send(clientSocket, buf, bytesReceived + 1, 0);
