@@ -1,65 +1,97 @@
 #include <iostream>
-#include <cstring>
-#include <sys/socket.h>
-#include <netinet/in.h>
-#include <unistd.h>
+#include <WS2tcpip.h>
+#include <string>
+
+//calling winsock library
+#pragma comment (lib, "ws2_32.lib")
 
 using namespace std;
 
-int main()
-{
-    //declar variables
-    int serverSocket, clientSocket;
-    struct sockaddr_in serverAddr, clientAddr;
-    socklen_t clientLen = sizeof(clientAddr);
-    char buffer[1024];
+int main() {
+    //initalize
+    WSADATA wsData;
+    WORD ver = MAKEWORD(2, 2);
 
-    //create socket
-    serverSocket = socket(AF_INET, SOCK_STREAM, 0);
-    if (serverSocket < 0)
-    {
-        cerr << "Error in socket creation\n";
+    int wsOK = WSAStartup(ver, &wsData);
+    if (wsOK != 0) {
+        cerr << "cant initialize" << endl;
         return -1;
     }
 
-    //bind socket to port
-    memset(&serverAddr, 0, sizeof(serverAddr));
-    serverAddr.sin_family = AF_INET;
-    serverAddr.sin_addr.s_addr = INADDR_ANY;
-    serverAddr.sin_port = htons(6000);  //port number
-
-    //check for bind error
-    if (bind(serverSocket, (struct sockaddr *)&serverAddr, sizeof(serverAddr)) , 0)
-    {
-        cerr << "Error in binding\n";
+    //make socket
+    SOCKET listening = socket(AF_INET, SOCK_STREAM, 0);
+    if (listening == INVALID_SOCKET) {
+        cerr << "cant create socket" << endl;
         return -1;
     }
 
-    //listen for incoming
-    listen(serverSocket, 5);
-    cout << "Listening...\n"
+    //bind socket
+    sockaddr_in hint;
+    hint.sin_family = AF_INET;
+    hint.sin_port = htons(6000); //port num
+    hint.sin_addr.S_un.S_addr = INADDR_ANY;
 
-    //accept connection
-    clientSocket = accept(serverSocket, (struct sockaddr *)&clientAddr, &clientLen);
-    if (clientSocket < 0)
-    {
-        cerr << "error in accepting connection\n"
+    bind(listening, (sockaddr*)&hint, sizeof(hint));
+
+    //listening
+    listen(listening, SOMAXCONN);
+
+    //looking for connection
+    sockaddr_in client;
+    int clientSize = sizeof(client);
+
+    //making rpi socket
+    SOCKET clientSocket = accept(listening, (sockaddr*)&client, &clientSize);
+    if (clientSocket == INVALID_SOCKET) {
+        cerr << "cant make rpi socket" << endl;
         return -1;
     }
 
-    cout << "Connection established with client\n";
-    
-    //received data
-    int bytesReceived = recv(clientSocket, buffer, sizeof(buffer), 0);
-    if (bytesReceived < 0)
-    {
-        cerr << "Error in receiving data\n";
-        return -1;
+    char host[NI_MAXHOST];      //rpi remote name
+    char service[NI_MAXSERV];   //port the client is connected on
+
+    ZeroMemory(host, NI_MAXHOST); //memset but for window API
+    ZeroMemory(service, NI_MAXSERV);
+
+    //cehck if connection actually works
+    if (getnameinfo((sockaddr*)&client, sizeof(client), host, NI_MAXHOST, service, NI_MAXSERV, 0) == 0) {
+        cout << host << " connected on port " << service << endl;
+    } else {
+        inet_ntop(AF_INET, &client.sin_addr, host, NI_MAXHOST);
+        cout << host << " connected on port " << ntohs(client.sin_port) << endl;
     }
 
-    //close sockets
-    close(clientSocket);
-    close(serverSocket);
+    //close server socket
+    closesocket(listening);
+
+    //accept and echo message back to client as test
+    char buf[4096];
+
+    while (true) {
+        ZeroMemory(buf, 4096);
+
+        //wait for rpi to send data
+        int bytesReceived = recv(clientSocket, buf, 4096, 0);
+        if (bytesReceived == SOCKET_ERROR) {
+            cerr << "Error in receiving" << endl;
+            break;
+        }
+
+        //if not getting anything from rpi
+        if (bytesReceived == 0) {
+            cout << "rpi disconnected" << endl;
+            break;
+        }
+
+        //resend message back to rpi
+        send(clientSocket, buf, bytesReceived + 1, 0);
+    }
+
+    //close rpi socket
+    closesocket(clientSocket);
+
+    //clean Winsock
+    WSACleanup();
 
     return 0;
 }
