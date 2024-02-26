@@ -3,15 +3,17 @@
 #include <string>
 
 //calling winsock library
-#pragma comment (lib, "ws2_32.lib")
+#pragma comment(lib, "ws2_32.lib")
 
 using namespace std;
+
+#define PORT 6000   //port number
+#define MAX_CLIENTS 5   //change this accordingly
 
 int main() {
     //initalize
     WSADATA wsData;
     WORD ver = MAKEWORD(2, 2);
-
     int wsOK = WSAStartup(ver, &wsData);
     if (wsOK != 0) {
         cerr << "cant initialize" << endl;
@@ -28,70 +30,74 @@ int main() {
     //bind socket
     sockaddr_in hint;
     hint.sin_family = AF_INET;
-    hint.sin_port = htons(6000); //port num
+    hint.sin_port = htons(6000);
     hint.sin_addr.S_un.S_addr = INADDR_ANY;
 
     bind(listening, (sockaddr*)&hint, sizeof(hint));
 
     //listening
     listen(listening, SOMAXCONN);
-    cout << "listening" << endl;
 
-    //looking for connection
-    sockaddr_in client;
-    int clientSize = sizeof(client);
+    cout << "listening for connection" << endl;
 
-    //making rpi socket
-    SOCKET clientSocket = accept(listening, (sockaddr*)&client, &clientSize);
-    if (clientSocket == INVALID_SOCKET) {
-        cerr << "cant make rpi socket" << endl;
-        return -1;
-    }
+    fd_set master;
+    FD_ZERO(&master);
+    FD_SET(listening, &master);
+    SOCKET clients[MAX_CLIENTS];
+    int clientsCount = 0;
 
-    char host[NI_MAXHOST];      //rpi remote name
-    char service[NI_MAXSERV];   //port the client is connected on
+    //checking multiple rpi
+    while(true)
+    {
+        fd_set copy = master;
+        int socketCount = select(0, &copy, nullptr, nullptr, nullptr);
 
-    ZeroMemory(host, NI_MAXHOST); //memset but for window API
-    ZeroMemory(service, NI_MAXSERV);
+        for(int i = 0; i < socketCount; i++)
+        {
+            SOCKET sock = copy.fd_array[i];
+            
+            if (sock == listening)
+            {
+                //accept new connect
+                SOCKET client = accept(listening, nullptr, nullptr);
+                //add new connection to the list of connected
+                clients[clientsCount] = client;
+                clientsCount++;
+                FD_SET(client, &master);
+                cout << "connected to new client" << endl;
+            }
+            else
+            {
+                //recieve
+                char buf[4096];
+                ZeroMemory(buf, 4096);
+                int bytesIn = recv(sock, buf, 4096, 0);
 
-    //cehck if connection actually works
-    if (getnameinfo((sockaddr*)&client, sizeof(client), host, NI_MAXHOST, service, NI_MAXSERV, 0) == 0) {
-        cout << host << " connected on port " << service << endl;
-    } else {
-        inet_ntop(AF_INET, &client.sin_addr, host, NI_MAXHOST);
-        cout << host << " connected on port " << ntohs(client.sin_port) << endl;
-    }
-
-    //close server socket
-    closesocket(listening);
-
-    //accept and echo message back to client as test
-    char buf[4096];
-
-    while (true) {
-        ZeroMemory(buf, 4096);
-
-        //wait for rpi to send data
-        int bytesReceived = recv(clientSocket, buf, 4096, 0);
-        if (bytesReceived == SOCKET_ERROR) {
-            cerr << "Error in receiving" << endl;
-            break;
+                //drop client if no data
+                if (bytesIn <= 0)
+                {
+                    closesocket(sock);
+                    FD_CLR(sock, &master);
+                    cout << "A client have dropped" << endl;
+                }
+                //echo message and print it out
+                else
+                {
+                    cout << "in echo" << endl;
+                    for (int i = 0; i < clientsCount; i++)
+                    {
+                        //if the client ID same as sock ID
+                        if (clients[i] == sock)
+                        {
+                            cout << buf << endl;
+                            send(clients[i], buf, bytesIn + 1, 0);
+                            
+                        }
+                    }
+                }
+            }
         }
-
-        //if not getting anything from rpi
-        if (bytesReceived == 0) {
-            cout << "rpi disconnected" << endl;
-            break;
-        }
-
-        cout << buf << endl;
-
-        //resend message back to rpi
-        send(clientSocket, buf, bytesReceived + 1, 0);
     }
-
-    //close rpi socket
-    closesocket(clientSocket);
 
     //clean Winsock
     WSACleanup();
