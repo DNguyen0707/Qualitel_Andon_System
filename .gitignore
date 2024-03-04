@@ -161,3 +161,7 @@ cython_debug/
 
 # C++ Stuff
 .exe
+
+# other package
+imgui/
+webui/
